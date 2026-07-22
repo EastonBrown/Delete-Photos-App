@@ -49,3 +49,14 @@ export async function filterUnscanned(ids: string[]): Promise<string[]> {
   const records = await scanRecordsStore.get();
   return ids.filter((id) => records[id] === undefined);
 }
+
+// Every id currently classified `grouped` — used by buildQueue to exclude
+// photos pending Similar Group review from the normal per-photo queue.
+export async function getGroupedIds(): Promise<Set<string>> {
+  const records = await scanRecordsStore.get();
+  return new Set(
+    Object.entries(records)
+      .filter(([, record]) => record.status === "grouped")
+      .map(([id]) => id)
+  );
+}

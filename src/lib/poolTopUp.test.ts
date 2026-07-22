@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { PoolTopUpDependencies, topUpPool } from "./poolTopUp";
+import { applyTopUpResult, PoolTopUpDependencies, PoolTopUpResult, topUpPool } from "./poolTopUp";
 
 function makeDeps(overrides: Partial<PoolTopUpDependencies> = {}): PoolTopUpDependencies {
   return {
@@ -96,7 +96,7 @@ describe("topUpPool", () => {
     expect(result.scanned).toBe(true);
   });
 
-  it("groups a candidate that matches a previously-cached neighbor hash, excluding it from the pool", async () => {
+  it("groups a candidate that matches a previously-cached neighbor hash, reclassifying the neighbor too", async () => {
     const deps = makeDeps({
       listUnscannedCandidates: vi.fn().mockResolvedValue(["b"]),
       chronologicalNeighborIds: vi.fn().mockImplementation(async (id: string) =>
@@ -109,7 +109,10 @@ describe("topUpPool", () => {
     const result = await topUpPool(5, [], deps, { lowWaterMark: 5, highWaterMark: 1000 });
 
     expect(result.cleared).toEqual([]);
-    expect(result.grouped).toEqual([{ id: "b", hash: 0n }]);
+    // "a" was only ever known via getHash (cleared in a past pass), but it's
+    // now a group member, so it must be reclassified grouped too — otherwise
+    // buildQueue would keep offering it in the normal per-photo queue.
+    expect(result.grouped.map((p) => p.id).sort()).toEqual(["a", "b"]);
     expect(result.groups).toEqual([["b", "a"]]);
   });
 
@@ -152,6 +155,9 @@ describe("topUpPool", () => {
 
     expect(result.groups).toHaveLength(1);
     expect(result.groups[0].sort()).toEqual(["a", "b", "c"]);
+    // "b" was already cleared in a past pass (found via getHash) but is now
+    // pulled into the group, so it's reclassified grouped alongside "c".
+    expect(result.grouped.map((p) => p.id).sort()).toEqual(["b", "c"]);
   });
 
   it("leaves unrelated existing pending groups untouched", async () => {
@@ -166,5 +172,45 @@ describe("topUpPool", () => {
     });
 
     expect(result.groups).toEqual([["x", "y"]]);
+  });
+});
+
+describe("applyTopUpResult", () => {
+  function makeResult(overrides: Partial<PoolTopUpResult> = {}): PoolTopUpResult {
+    return { scanned: true, cleared: [], grouped: [], groups: [], ...overrides };
+  }
+
+  it("returns the queue untouched when no top-up ran", () => {
+    const queue = applyTopUpResult(["a", "b"], makeResult({ scanned: false }));
+    expect(queue).toEqual(["a", "b"]);
+  });
+
+  it("drops newly-grouped ids that were already in the queue", () => {
+    const queue = applyTopUpResult(
+      ["a", "b", "c"],
+      makeResult({ grouped: [{ id: "b", hash: 0n }] })
+    );
+    expect(queue).toEqual(["a", "c"]);
+  });
+
+  it("appends newly-cleared ids that weren't already in the queue", () => {
+    const queue = applyTopUpResult(["a"], makeResult({ cleared: [{ id: "b", hash: 0n }] }));
+    expect(queue).toEqual(["a", "b"]);
+  });
+
+  it("doesn't duplicate a newly-cleared id that was already in the queue", () => {
+    const queue = applyTopUpResult(["a", "b"], makeResult({ cleared: [{ id: "b", hash: 0n }] }));
+    expect(queue).toEqual(["a", "b"]);
+  });
+
+  it("applies both drops and appends together", () => {
+    const queue = applyTopUpResult(
+      ["a", "b", "c"],
+      makeResult({
+        grouped: [{ id: "b", hash: 0n }],
+        cleared: [{ id: "d", hash: 0n }],
+      })
+    );
+    expect(queue).toEqual(["a", "c", "d"]);
   });
 });

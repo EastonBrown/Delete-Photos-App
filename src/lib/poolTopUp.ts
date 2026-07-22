@@ -43,10 +43,13 @@ export interface PoolTopUpResult {
 
 // Tops up the review pool when it's run low, by hashing a random sample of
 // unscanned candidates and comparing each against the cached hashes of its
-// nearest chronological neighbors. Neighbors hashed earlier in this same pass
-// are also considered (via the local session cache below), so a chain like
-// A~B~C can still group correctly even though A and C are never compared
-// directly — see mergeMatch's single-linkage semantics in similarityMatch.ts.
+// nearest chronological neighbors — whether cached earlier this same pass
+// (via the local session cache below) or in a past pass (via deps.getHash).
+// A matched neighbor is reclassified grouped either way, so a chain like
+// A~B~C still ends up correctly grouped even though A and C are never
+// compared directly — see mergeMatch's single-linkage semantics in
+// similarityMatch.ts — and no group member is ever left with a stale
+// `cleared` scan status.
 export async function topUpPool(
   poolSize: number,
   existingGroups: string[][],
@@ -89,23 +92,23 @@ export async function topUpPool(
     sessionHashes.set(id, hash);
 
     const neighborIds = await deps.chronologicalNeighborIds(id, neighborCount);
-    const matchedNeighbors: string[] = [];
+    const matchedNeighbors: ScannedPhoto[] = [];
     for (const neighborId of neighborIds) {
       const neighborHash = sessionHashes.get(neighborId) ?? (await deps.getHash(neighborId));
       if (neighborHash !== undefined && isSimilarHash(hash, neighborHash, similarityThreshold)) {
-        matchedNeighbors.push(neighborId);
+        matchedNeighbors.push({ id: neighborId, hash: neighborHash });
       }
     }
 
     if (matchedNeighbors.length > 0) {
       reclassifyAsGrouped(id, hash);
-      for (const neighborId of matchedNeighbors) {
-        groups = mergeMatch(groups, id, neighborId);
-        // Only reclassify neighbors this pass itself cleared — a neighbor
-        // known solely via deps.getHash was cleared in a past pass and is
-        // left untouched, matching the cached-hash comparison the ADR describes.
-        const neighborHash = sessionHashes.get(neighborId);
-        if (neighborHash !== undefined) reclassifyAsGrouped(neighborId, neighborHash);
+      for (const neighbor of matchedNeighbors) {
+        groups = mergeMatch(groups, id, neighbor.id);
+        // Reclassify the neighbor too, even when it was only ever cleared in
+        // a past pass (found via deps.getHash) — it's now a live member of a
+        // Similar Group, so its scan status must flip to grouped as well, or
+        // buildQueue would keep offering it in the normal per-photo queue.
+        reclassifyAsGrouped(neighbor.id, neighbor.hash);
       }
     } else {
       cleared.set(id, hash);
@@ -122,4 +125,23 @@ export async function topUpPool(
     grouped: toScannedPhotos(grouped),
     groups,
   };
+}
+
+// Reconciles a persisted queue against a completed top-up: drops newly-grouped
+// ids (no longer eligible for the normal per-photo queue) and appends
+// newly-cleared ids that aren't already present — a queue built via a full
+// buildQueue rebuild may already include every unscanned id, so this avoids
+// duplicating them.
+export function applyTopUpResult(queue: string[], result: PoolTopUpResult): string[] {
+  if (!result.scanned) return queue;
+
+  const groupedIds = new Set(result.grouped.map((photo) => photo.id));
+  const remaining = queue.filter((id) => !groupedIds.has(id));
+
+  const remainingIds = new Set(remaining);
+  const newlyClearedIds = result.cleared
+    .map((photo) => photo.id)
+    .filter((id) => !remainingIds.has(id));
+
+  return [...remaining, ...newlyClearedIds];
 }

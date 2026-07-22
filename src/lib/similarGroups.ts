@@ -10,6 +10,12 @@ export async function getPendingGroups(): Promise<string[][]> {
   return groupsStore.get();
 }
 
+// Overwrites the full pending-groups list — used by pool top-up wiring, which
+// computes the fully-merged result itself via mergeMatch (see poolTopUp.ts).
+export function setPendingGroups(groups: string[][]): Promise<void> {
+  return groupsStore.set(groups);
+}
+
 export async function getGroupFor(id: string): Promise<string[] | undefined> {
   return findGroupContaining(await getPendingGroups(), id);
 }
