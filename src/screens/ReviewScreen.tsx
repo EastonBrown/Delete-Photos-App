@@ -23,8 +23,12 @@ export function ReviewScreen({ candidates, onDone }: ReviewScreenProps) {
   const [toDelete, setToDelete] = useState<PhotoAsset[]>(candidates);
   const [busy, setBusy] = useState(false);
 
-  const toggleKeep = (asset: PhotoAsset) => {
-    setToDelete((current) => current.filter((a) => a.id !== asset.id));
+  const toggleDelete = (asset: PhotoAsset) => {
+    setToDelete((current) =>
+      current.some((a) => a.id === asset.id)
+        ? current.filter((a) => a.id !== asset.id)
+        : [...current, asset]
+    );
   };
 
   const handleConfirm = async () => {
@@ -77,7 +81,7 @@ export function ReviewScreen({ candidates, onDone }: ReviewScreenProps) {
           return (
             <Pressable
               style={styles.cell}
-              onPress={() => (marked ? toggleKeep(item) : setToDelete((c) => [...c, item]))}
+              onPress={() => toggleDelete(item)}
             >
               <Image source={{ uri: item.uri }} style={styles.thumb} contentFit="cover" />
               {!marked && (
