@@ -2,6 +2,7 @@ import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import { useMemo, useRef } from "react";
 import { Animated, Dimensions, PanResponder, StyleSheet, Text } from "react-native";
+import { resolveSwipe } from "../lib/resolveSwipe";
 import { PhotoAsset, SwipeDirection } from "../types";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -26,10 +27,9 @@ export function SwipeCard({ asset, isTop, stackOffset, onSwiped }: SwipeCardProp
           useNativeDriver: false,
         }),
         onPanResponderRelease: (_event, gesture) => {
-          const shouldSwipe =
-            Math.abs(gesture.dx) > SWIPE_THRESHOLD || Math.abs(gesture.vx) > 0.8;
+          const direction = resolveSwipe(gesture.dx, gesture.vx, SWIPE_THRESHOLD);
 
-          if (!shouldSwipe) {
+          if (!direction) {
             Animated.spring(position, {
               toValue: { x: 0, y: 0 },
               useNativeDriver: false,
@@ -38,7 +38,6 @@ export function SwipeCard({ asset, isTop, stackOffset, onSwiped }: SwipeCardProp
           }
 
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-          const direction: SwipeDirection = gesture.dx > 0 ? "right" : "left";
           Animated.timing(position, {
             toValue: {
               x: Math.sign(gesture.dx) * SCREEN_WIDTH * 1.5,
