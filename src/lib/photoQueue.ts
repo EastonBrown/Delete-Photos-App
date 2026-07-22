@@ -1,8 +1,9 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { buildQueue, SortMode } from "./buildQueue";
 import { createPersistedJSON } from "./persistedJSON";
 import { fetchAllPhotoIds } from "./mediaLibrary";
 
-export type SortMode = "random" | "newestFirst" | "oldestFirst";
+export type { SortMode } from "./buildQueue";
 
 const KEPT_IDS_KEY = "photoQueue:keptIds";
 const QUEUE_KEY = "photoQueue:shuffledQueue";
@@ -27,15 +28,6 @@ async function writeQueue(queue: string[]): Promise<void> {
   await queueStore.set(queue);
 }
 
-function shuffle<T>(items: T[]): T[] {
-  const result = [...items];
-  for (let i = result.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [result[i], result[j]] = [result[j], result[i]];
-  }
-  return result;
-}
-
 export async function getSortMode(): Promise<SortMode> {
   const raw = await AsyncStorage.getItem(SORT_MODE_KEY);
   return raw === "newestFirst" || raw === "oldestFirst" ? raw : "random";
@@ -47,15 +39,8 @@ export async function setSortMode(mode: SortMode): Promise<void> {
 
 export async function rebuildQueue(mode?: SortMode): Promise<number> {
   const sortMode = mode ?? (await getSortMode());
-  const [allIds, keptIds] = await Promise.all([fetchAllPhotoIds(), readKeptIds()]);
-  // fetchAllPhotoIds() returns newest-first (creationTime descending).
-  const unreviewed = allIds.filter((id) => !keptIds.has(id));
-  const queue =
-    sortMode === "random"
-      ? shuffle(unreviewed)
-      : sortMode === "oldestFirst"
-        ? [...unreviewed].reverse()
-        : unreviewed;
+  const [newestFirstIds, keptIds] = await Promise.all([fetchAllPhotoIds(), readKeptIds()]);
+  const queue = buildQueue(newestFirstIds, keptIds, sortMode);
   await writeQueue(queue);
   return queue.length;
 }
