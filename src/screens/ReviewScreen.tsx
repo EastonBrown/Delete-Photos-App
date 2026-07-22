@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { deleteAssets } from "../lib/mediaLibrary";
 import { markKept } from "../lib/photoQueue";
+import { confirmReview } from "../lib/reviewSession";
 import { incrementDeleted, incrementKept } from "../lib/stats";
 import { PhotoAsset } from "../types";
 
@@ -32,22 +33,19 @@ export function ReviewScreen({ candidates, onDone }: ReviewScreenProps) {
   };
 
   const handleConfirm = async () => {
-    if (toDelete.length === 0) {
-      onDone();
-      return;
-    }
     setBusy(true);
     try {
-      const success = await deleteAssets(toDelete.map((a) => a.id));
-      if (success) {
-        const kept = candidates.filter((a) => !toDelete.some((d) => d.id === a.id));
-        await markKept(kept.map((a) => a.id));
-        await incrementKept(kept.length);
-        await incrementDeleted(toDelete.length);
+      const result = await confirmReview(candidates, toDelete, {
+        deleteAssets,
+        markKept,
+        incrementKept,
+        incrementDeleted,
+      });
+      if (result.ok) {
         onDone();
+      } else {
+        Alert.alert("Delete failed", result.reason);
       }
-    } catch (err) {
-      Alert.alert("Delete failed", err instanceof Error ? err.message : "Please try again.");
     } finally {
       setBusy(false);
     }
