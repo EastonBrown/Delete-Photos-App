@@ -8,14 +8,12 @@ import {
   View,
 } from "react-native";
 import { AccessLevel, presentLimitedAccessPicker, requestAccess } from "../lib/mediaLibrary";
+import { ensureQueue, rebuildQueue, remainingCount } from "../lib/photoQueue";
 import {
-  ensureQueue,
   getSortMode,
-  rebuildQueue,
-  remainingCount,
   setSortMode as persistSortMode,
   SortMode,
-} from "../lib/photoQueue";
+} from "../lib/sortPreference";
 import { getStats, Stats } from "../lib/stats";
 
 const SESSION_SIZE_OPTIONS = [10, 20, 30, 50];

@@ -2,8 +2,9 @@ import * as Haptics from "expo-haptics";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { SwipeCard } from "../components/SwipeCard";
+import { markKept, unmarkKept } from "../lib/keptRegistry";
 import { getAssetInfo } from "../lib/mediaLibrary";
-import { markKept, returnToQueue, takeNextBatch, unmarkKept } from "../lib/photoQueue";
+import { returnToQueue, takeNextBatch } from "../lib/photoQueue";
 import {
   applySwipe,
   createSwipeSession,

@@ -9,8 +9,8 @@ import {
   Text,
   View,
 } from "react-native";
+import { markKept } from "../lib/keptRegistry";
 import { deleteAssets } from "../lib/mediaLibrary";
-import { markKept } from "../lib/photoQueue";
 import { confirmReview } from "../lib/reviewSession";
 import { incrementDeleted, incrementKept } from "../lib/stats";
 import { PhotoAsset } from "../types";
