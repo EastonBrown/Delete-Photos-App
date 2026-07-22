@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { createPersistedJSON } from "./persistedJSON";
 
 export interface Stats {
   reviewed: number;
@@ -10,13 +11,14 @@ const STATS_KEY = "stats:counts";
 
 const EMPTY_STATS: Stats = { reviewed: 0, kept: 0, deleted: 0 };
 
+const statsStore = createPersistedJSON<Partial<Stats>>(AsyncStorage, STATS_KEY, EMPTY_STATS);
+
 async function readStats(): Promise<Stats> {
-  const raw = await AsyncStorage.getItem(STATS_KEY);
-  return raw ? { ...EMPTY_STATS, ...(JSON.parse(raw) as Partial<Stats>) } : { ...EMPTY_STATS };
+  return { ...EMPTY_STATS, ...(await statsStore.get()) };
 }
 
 async function writeStats(stats: Stats): Promise<void> {
-  await AsyncStorage.setItem(STATS_KEY, JSON.stringify(stats));
+  await statsStore.set(stats);
 }
 
 export async function getStats(): Promise<Stats> {

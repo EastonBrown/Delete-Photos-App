@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { createPersistedJSON } from "./persistedJSON";
 import { fetchAllPhotoIds } from "./mediaLibrary";
 
 export type SortMode = "random" | "newestFirst" | "oldestFirst";
@@ -7,22 +8,23 @@ const KEPT_IDS_KEY = "photoQueue:keptIds";
 const QUEUE_KEY = "photoQueue:shuffledQueue";
 const SORT_MODE_KEY = "photoQueue:sortMode";
 
+const keptIdsStore = createPersistedJSON<string[]>(AsyncStorage, KEPT_IDS_KEY, []);
+const queueStore = createPersistedJSON<string[]>(AsyncStorage, QUEUE_KEY, []);
+
 async function readKeptIds(): Promise<Set<string>> {
-  const raw = await AsyncStorage.getItem(KEPT_IDS_KEY);
-  return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+  return new Set(await keptIdsStore.get());
 }
 
 async function writeKeptIds(ids: Set<string>): Promise<void> {
-  await AsyncStorage.setItem(KEPT_IDS_KEY, JSON.stringify([...ids]));
+  await keptIdsStore.set([...ids]);
 }
 
 async function readQueue(): Promise<string[]> {
-  const raw = await AsyncStorage.getItem(QUEUE_KEY);
-  return raw ? (JSON.parse(raw) as string[]) : [];
+  return queueStore.get();
 }
 
 async function writeQueue(queue: string[]): Promise<void> {
-  await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+  await queueStore.set(queue);
 }
 
 function shuffle<T>(items: T[]): T[] {
