@@ -50,6 +50,13 @@ export async function getAssetInfo(id: string): Promise<PhotoAsset | null> {
   };
 }
 
+// localUri is a file:// path, distinct from (and not always equal to) uri —
+// needed by consumers that read raw pixel/file data, e.g. dHash.ts.
+export async function getLocalUri(id: string): Promise<string> {
+  const info = await MediaLibrary.getAssetInfoAsync(id);
+  return info.localUri ?? info.uri;
+}
+
 export async function deleteAssets(ids: string[]): Promise<boolean> {
   if (ids.length === 0) return true;
   return MediaLibrary.deleteAssetsAsync(ids);
