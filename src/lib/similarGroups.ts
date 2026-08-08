@@ -16,6 +16,13 @@ export function setPendingGroups(groups: string[][]): Promise<void> {
   return groupsStore.set(groups);
 }
 
+// How many Similar Groups are waiting to be reviewed. Counts stored groups as-is:
+// a group whose members have since been deleted outside the app still counts here
+// and is retired when the review screen resolves it (see resolveGroups).
+export async function pendingGroupCount(): Promise<number> {
+  return (await getPendingGroups()).length;
+}
+
 export async function getGroupFor(id: string): Promise<string[] | undefined> {
   return findGroupContaining(await getPendingGroups(), id);
 }

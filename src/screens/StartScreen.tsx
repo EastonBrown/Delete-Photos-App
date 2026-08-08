@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import { AccessLevel, presentLimitedAccessPicker, requestAccess } from "../lib/mediaLibrary";
 import { ensureQueue, rebuildQueue, remainingCount } from "../lib/photoQueue";
+import { pendingGroupCount } from "../lib/similarGroups";
 import {
   getSortMode,
   setSortMode as persistSortMode,
@@ -26,15 +27,17 @@ const SORT_MODE_OPTIONS: { mode: SortMode; label: string }[] = [
 
 interface StartScreenProps {
   onStartSession: (sessionSize: number) => void;
+  onReviewSimilar: () => void;
 }
 
-export function StartScreen({ onStartSession }: StartScreenProps) {
+export function StartScreen({ onStartSession, onReviewSimilar }: StartScreenProps) {
   const [access, setAccess] = useState<AccessLevel | "loading">("loading");
   const [remaining, setRemaining] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [sortMode, setSortModeState] = useState<SortMode>("random");
   const [sessionSize, setSessionSize] = useState(30);
   const [stats, setStats] = useState<Stats | null>(null);
+  const [groupCount, setGroupCount] = useState(0);
 
   const refresh = useCallback(async () => {
     setBusy(true);
@@ -48,8 +51,11 @@ export function StartScreen({ onStartSession }: StartScreenProps) {
       setSortModeState(mode);
       setStats(statsResult);
       if (level !== "none") {
+        // ensureQueue runs the Similarity Scan's pool top-up, which can create new
+        // Similar Groups — so the pending count has to be read after it, not with it.
         const count = await ensureQueue();
         setRemaining(count);
+        setGroupCount(await pendingGroupCount());
       }
     } finally {
       setBusy(false);
@@ -60,11 +66,16 @@ export function StartScreen({ onStartSession }: StartScreenProps) {
     refresh();
   }, [refresh]);
 
+  // rebuildQueue also tops up the pool, so both counts move together.
+  const rebuild = async (mode?: SortMode) => {
+    setRemaining(await rebuildQueue(mode));
+    setGroupCount(await pendingGroupCount());
+  };
+
   const handleRebuild = async () => {
     setBusy(true);
     try {
-      const count = await rebuildQueue();
-      setRemaining(count);
+      await rebuild();
     } finally {
       setBusy(false);
     }
@@ -76,8 +87,7 @@ export function StartScreen({ onStartSession }: StartScreenProps) {
     try {
       await persistSortMode(mode);
       setSortModeState(mode);
-      const count = await rebuildQueue(mode);
-      setRemaining(count);
+      await rebuild(mode);
     } finally {
       setBusy(false);
     }
@@ -149,6 +159,17 @@ export function StartScreen({ onStartSession }: StartScreenProps) {
           </Pressable>
         ))}
       </View>
+
+      {groupCount > 0 && (
+        <View style={styles.similarBanner}>
+          <Text style={styles.similarText}>
+            {groupCount} group{groupCount === 1 ? "" : "s"} of similar photos found
+          </Text>
+          <Pressable style={styles.similarButton} onPress={onReviewSimilar}>
+            <Text style={styles.buttonText}>Review Similar Photos</Text>
+          </Pressable>
+        </View>
+      )}
 
       {remaining === 0 ? (
         <>
@@ -234,6 +255,21 @@ const styles = StyleSheet.create({
   secondaryButtonText: {
     color: "#888",
     fontSize: 14,
+  },
+  similarBanner: {
+    alignItems: "center",
+    gap: 10,
+  },
+  similarText: {
+    color: "#ccc",
+    fontSize: 15,
+    textAlign: "center",
+  },
+  similarButton: {
+    backgroundColor: "#3498db",
+    paddingVertical: 12,
+    paddingHorizontal: 28,
+    borderRadius: 12,
   },
   limitedBanner: {
     backgroundColor: "#222",
