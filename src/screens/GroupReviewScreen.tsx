@@ -25,7 +25,7 @@ import { deleteAssets, getAssetInfos } from "../lib/mediaLibrary";
 import { confirmReview } from "../lib/reviewSession";
 import { setResolved } from "../lib/scanStatus";
 import { getPendingGroups, removeGroup } from "../lib/similarGroups";
-import { incrementDeleted, incrementKept } from "../lib/stats";
+import { incrementDeleted, incrementKept, incrementReviewed } from "../lib/stats";
 import { PhotoAsset } from "../types";
 
 interface GroupReviewScreenProps {
@@ -89,6 +89,10 @@ export function GroupReviewScreen({ onDone }: GroupReviewScreenProps) {
         Alert.alert("Delete failed", result.reason);
         return;
       }
+
+      // Every photo in the group has now been shown to the user and decided on, which
+      // is what `reviewed` counts — the same event a swipe records in the other flow.
+      await incrementReviewed(group.photos.length);
 
       // The photos are already gone by here, so a bookkeeping failure must not
       // strand the session on a group that no longer exists — report and move on.

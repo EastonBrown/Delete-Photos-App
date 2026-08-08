@@ -16,5 +16,9 @@ _Avoid_: duplicate scan, similarity index
 A Similar Group with fewer than two surviving members, usually because photos were deleted outside the app. It offers no comparison and no choice, so it stops being pending and any lone survivor returns to the normal one-by-one review. A group only counts as collapsed when every non-surviving member is confirmed gone — a member the app merely failed to load is unavailable, not deleted, and its group waits instead. See [ADR-0002](./docs/adr/0002-unavailable-is-not-deleted.md).
 _Avoid_: degenerate group, dead group, orphaned group
 
+**Reviewed**:
+The count of times the user has been shown a photo and made a decision about it — a swipe in the one-by-one flow, or confirming a Similar Group. It counts _lookings-at_, not photos resolved: a photo swiped left in a session the user then abandons is counted, returns to the queue, and is counted again next time. So `reviewed` can exceed `kept + deleted` and is not derivable from them.
+_Avoid_: processed, seen, handled
+
 **Scan Status**:
 Per-photo state tracked by the Similarity Scan: `unscanned` (not yet examined), `cleared` (examined, no match found), or `grouped` (examined, matched into a Similar Group pending review). Only `grouped` photos are excluded from the normal per-photo review queue — `unscanned` photos remain eligible, since running a Similarity Scan is never required to use the app.
