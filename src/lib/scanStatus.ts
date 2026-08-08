@@ -50,6 +50,29 @@ export async function filterUnscanned(ids: string[]): Promise<string[]> {
   return ids.filter((id) => records[id] === undefined);
 }
 
+// A Similar Group ceases to exist once reviewed, so its members stop being
+// "pending review" — the whole meaning of `grouped`. They drop back to `cleared`,
+// which keeps the cached hash (a photo is never rehashed once known) while making
+// them eligible for the normal per-photo queue again. Without this, a member that
+// leaves a group without being kept or deleted — the sole survivor of a group whose
+// other members vanished — would stay excluded from every flow permanently.
+// Ids with no scan record are left untouched.
+export async function setResolved(ids: string[]): Promise<void> {
+  const records = await scanRecordsStore.get();
+  const updated = { ...records };
+  let changed = false;
+
+  for (const id of ids) {
+    const record = updated[id];
+    if (record !== undefined && record.status !== "cleared") {
+      updated[id] = { ...record, status: "cleared" };
+      changed = true;
+    }
+  }
+
+  if (changed) await scanRecordsStore.set(updated);
+}
+
 // Every id currently classified `grouped` — used by buildQueue to exclude
 // photos pending Similar Group review from the normal per-photo queue.
 export async function getGroupedIds(): Promise<Set<string>> {

@@ -39,15 +39,24 @@ export async function fetchAllPhotoIds(): Promise<string[]> {
   return ids;
 }
 
+// Null means "this id no longer resolves to a real asset" — a persisted id (a
+// queue entry, a pending Similar Group member) can name a photo since deleted
+// outside the app, and getAssetInfoAsync rejects rather than resolving null for
+// those. Callers already handle null, so the rejection is normalized here once
+// rather than re-caught at each call site.
 export async function getAssetInfo(id: string): Promise<PhotoAsset | null> {
-  const info = await MediaLibrary.getAssetInfoAsync(id);
-  if (!info) return null;
-  return {
-    id: info.id,
-    uri: info.uri,
-    width: info.width,
-    height: info.height,
-  };
+  try {
+    const info = await MediaLibrary.getAssetInfoAsync(id);
+    if (!info) return null;
+    return {
+      id: info.id,
+      uri: info.uri,
+      width: info.width,
+      height: info.height,
+    };
+  } catch {
+    return null;
+  }
 }
 
 // localUri is a file:// path, distinct from (and not always equal to) uri —
