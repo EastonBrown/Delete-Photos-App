@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { SwipeCard } from "../components/SwipeCard";
 import { markKept, unmarkKept } from "../lib/keptRegistry";
-import { getAssetInfo } from "../lib/mediaLibrary";
+import { getAssetInfos } from "../lib/mediaLibrary";
 import { returnToQueue, takeNextBatch } from "../lib/photoQueue";
 import {
   applySwipe,
@@ -33,9 +33,21 @@ export function SwipeScreen({
   useEffect(() => {
     (async () => {
       const ids = await takeNextBatch(sessionSize);
-      const assets = await Promise.all(ids.map(getAssetInfo));
-      const valid = assets.filter((a): a is PhotoAsset => a !== null);
-      setSession(createSwipeSession(valid));
+      const lookups = await getAssetInfos(ids);
+
+      // takeNextBatch has already removed these ids from the persisted queue, so an
+      // id dropped here is dropped forever. Only a confirmed-missing photo earns
+      // that; one we merely failed to load goes back to be offered again (ADR-0002).
+      const cards: PhotoAsset[] = [];
+      const unresolved: string[] = [];
+      for (const id of ids) {
+        const lookup = lookups.get(id) ?? { status: "unavailable" as const };
+        if (lookup.status === "found") cards.push(lookup.asset);
+        else if (lookup.status === "unavailable") unresolved.push(id);
+      }
+      await returnToQueue(unresolved);
+
+      setSession(createSwipeSession(cards));
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

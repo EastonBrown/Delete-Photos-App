@@ -1,5 +1,5 @@
 import * as MediaLibrary from "expo-media-library";
-import { PhotoAsset } from "../types";
+import { AssetLookup } from "../types";
 
 export type AccessLevel = "all" | "limited" | "none";
 
@@ -39,24 +39,48 @@ export async function fetchAllPhotoIds(): Promise<string[]> {
   return ids;
 }
 
-// Null means "this id no longer resolves to a real asset" — a persisted id (a
-// queue entry, a pending Similar Group member) can name a photo since deleted
-// outside the app, and getAssetInfoAsync rejects rather than resolving null for
-// those. Callers already handle null, so the rejection is normalized here once
-// rather than re-caught at each call site.
-export async function getAssetInfo(id: string): Promise<PhotoAsset | null> {
+// Resolves a persisted id (a queue entry, a pending Similar Group member) against
+// the library. The two failure states are deliberately not merged:
+//
+//   missing     — the library answered, and this photo is gone. Forget it.
+//   unavailable — the lookup itself failed. Says nothing about whether the photo
+//                 exists, so callers must never treat it as a deletion.
+//
+// The platforms disagree on how "gone" arrives: iOS rejects, while the Android
+// path returns an empty array that expo-media-library indexes into, yielding
+// undefined. A resolved-but-empty answer is the library speaking, so it counts as
+// missing; only a thrown error is unavailable. See ADR-0002.
+export async function getAssetInfo(id: string): Promise<AssetLookup> {
   try {
     const info = await MediaLibrary.getAssetInfoAsync(id);
-    if (!info) return null;
+    if (!info) return { status: "missing" };
     return {
-      id: info.id,
-      uri: info.uri,
-      width: info.width,
-      height: info.height,
+      status: "found",
+      asset: {
+        id: info.id,
+        uri: info.uri,
+        width: info.width,
+        height: info.height,
+      },
     };
   } catch {
-    return null;
+    return { status: "unavailable" };
   }
+}
+
+// Resolves ids with a cap on in-flight lookups. getAssetInfoAsync defaults to
+// shouldDownloadFromNetwork: true, so an unbounded Promise.all over a large id list
+// can kick off hundreds of simultaneous iCloud downloads.
+const MAX_CONCURRENT_LOOKUPS = 8;
+
+export async function getAssetInfos(ids: string[]): Promise<Map<string, AssetLookup>> {
+  const results = new Map<string, AssetLookup>();
+  for (let i = 0; i < ids.length; i += MAX_CONCURRENT_LOOKUPS) {
+    const window = ids.slice(i, i + MAX_CONCURRENT_LOOKUPS);
+    const resolved = await Promise.all(window.map(getAssetInfo));
+    window.forEach((id, index) => results.set(id, resolved[index]));
+  }
+  return results;
 }
 
 // localUri is a file:// path, distinct from (and not always equal to) uri —

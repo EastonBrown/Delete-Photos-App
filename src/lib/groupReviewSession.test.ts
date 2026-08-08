@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PhotoAsset } from "../types";
+import { AssetLookup, PhotoAsset } from "../types";
 import {
   advance,
   createGroupReviewSession,
@@ -15,8 +15,19 @@ function asset(id: string): PhotoAsset {
   return { id, uri: `uri-${id}`, width: 100, height: 100 };
 }
 
-function assetMap(...ids: string[]): Map<string, PhotoAsset> {
-  return new Map(ids.map((id) => [id, asset(id)]));
+// Every id the caller looked up lands in this map. Ids given as `found` resolved to
+// a real asset; anything else is named explicitly, because the whole point of the
+// three states is that "couldn't load it" and "it's gone" are not the same answer.
+function lookups(spec: Record<string, "found" | "missing" | "unavailable">) {
+  const map = new Map<string, AssetLookup>();
+  for (const [id, status] of Object.entries(spec)) {
+    map.set(id, status === "found" ? { status, asset: asset(id) } : { status });
+  }
+  return map;
+}
+
+function allFound(...ids: string[]) {
+  return lookups(Object.fromEntries(ids.map((id) => [id, "found" as const])));
 }
 
 function group(...ids: string[]): ReviewableGroup {
@@ -25,60 +36,133 @@ function group(...ids: string[]): ReviewableGroup {
 
 describe("resolveGroups", () => {
   it("resolves a fully-resolvable group into its assets", () => {
-    const result = resolveGroups([["a", "b"]], assetMap("a", "b"));
+    const result = resolveGroups([["a", "b"]], allFound("a", "b"));
 
     expect(result.reviewable).toEqual([{ ids: ["a", "b"], photos: [asset("a"), asset("b")] }]);
-    expect(result.degenerate).toEqual([]);
+    expect(result.collapsed).toEqual([]);
+    expect(result.deferred).toEqual([]);
   });
 
   it("preserves member order within a group", () => {
-    const result = resolveGroups([["c", "a", "b"]], assetMap("a", "b", "c"));
+    const result = resolveGroups([["c", "a", "b"]], allFound("a", "b", "c"));
 
     expect(result.reviewable[0].photos.map((a) => a.id)).toEqual(["c", "a", "b"]);
   });
 
-  it("drops unresolvable members but keeps the group when two still resolve", () => {
-    const result = resolveGroups([["a", "gone", "b"]], assetMap("a", "b"));
+  it("drops missing members but keeps the group when two still resolve", () => {
+    const result = resolveGroups(
+      [["a", "gone", "b"]],
+      lookups({ a: "found", gone: "missing", b: "found" })
+    );
 
     expect(result.reviewable[0].photos).toEqual([asset("a"), asset("b")]);
-    expect(result.degenerate).toEqual([]);
+    expect(result.collapsed).toEqual([]);
   });
 
   it("keeps the original id list as the group's identity so it can be removed from pending", () => {
-    const result = resolveGroups([["a", "gone", "b"]], assetMap("a", "b"));
+    const result = resolveGroups(
+      [["a", "gone", "b"]],
+      lookups({ a: "found", gone: "missing", b: "found" })
+    );
 
     expect(result.reviewable[0].ids).toEqual(["a", "gone", "b"]);
   });
 
-  it("reports a group as degenerate when only one member resolves", () => {
-    const result = resolveGroups([["a", "gone"]], assetMap("a"));
+  it("collapses a group when only one member survives", () => {
+    const result = resolveGroups([["a", "gone"]], lookups({ a: "found", gone: "missing" }));
 
     expect(result.reviewable).toEqual([]);
-    expect(result.degenerate).toEqual([["a", "gone"]]);
+    expect(result.collapsed).toEqual([["a", "gone"]]);
   });
 
-  it("reports a group as degenerate when no member resolves", () => {
-    const result = resolveGroups([["gone", "alsoGone"]], assetMap());
+  it("collapses a group when every member is gone", () => {
+    const result = resolveGroups(
+      [["gone", "alsoGone"]],
+      lookups({ gone: "missing", alsoGone: "missing" })
+    );
 
     expect(result.reviewable).toEqual([]);
-    expect(result.degenerate).toEqual([["gone", "alsoGone"]]);
+    expect(result.collapsed).toEqual([["gone", "alsoGone"]]);
   });
 
-  it("separates reviewable and degenerate groups in one pass", () => {
+  // The rule the whole three-state distinction exists for: a photo we merely failed
+  // to load is not a deleted photo, so its group must survive to be reviewed later.
+  it("defers rather than collapses when a member is only unavailable", () => {
+    const result = resolveGroups([["a", "cloud"]], lookups({ a: "found", cloud: "unavailable" }));
+
+    expect(result.reviewable).toEqual([]);
+    expect(result.collapsed).toEqual([]);
+    expect(result.deferred).toEqual([["a", "cloud"]]);
+  });
+
+  it("defers a group whose members are all unavailable", () => {
+    const result = resolveGroups(
+      [["cloudA", "cloudB"]],
+      lookups({ cloudA: "unavailable", cloudB: "unavailable" })
+    );
+
+    expect(result.collapsed).toEqual([]);
+    expect(result.deferred).toEqual([["cloudA", "cloudB"]]);
+  });
+
+  // Two survivors are enough to make a real comparison, so an unavailable third
+  // shouldn't block the review — it returns to the normal queue when the group retires.
+  it("still reviews a group with two survivors and one unavailable member", () => {
+    const result = resolveGroups(
+      [["a", "b", "cloud"]],
+      lookups({ a: "found", b: "found", cloud: "unavailable" })
+    );
+
+    expect(result.reviewable[0].photos).toEqual([asset("a"), asset("b")]);
+    expect(result.deferred).toEqual([]);
+  });
+
+  it("collapses only when every non-surviving member is confirmed missing", () => {
+    const result = resolveGroups(
+      [["a", "gone", "cloud"]],
+      lookups({ a: "found", gone: "missing", cloud: "unavailable" })
+    );
+
+    expect(result.collapsed).toEqual([]);
+    expect(result.deferred).toEqual([["a", "gone", "cloud"]]);
+  });
+
+  // An id absent from the map was never looked up. Treating that as missing would
+  // retire a group on the strength of a lookup that never happened.
+  it("treats an unlooked-up id as unavailable rather than missing", () => {
+    const result = resolveGroups([["a", "never"]], allFound("a"));
+
+    expect(result.collapsed).toEqual([]);
+    expect(result.deferred).toEqual([["a", "never"]]);
+  });
+
+  it("separates reviewable, collapsed and deferred groups in one pass", () => {
     const result = resolveGroups(
       [
         ["a", "b"],
         ["c", "gone"],
-        ["d", "e", "f"],
+        ["d", "cloud"],
+        ["e", "f", "g"],
       ],
-      assetMap("a", "b", "c", "d", "e", "f")
+      lookups({
+        a: "found",
+        b: "found",
+        c: "found",
+        gone: "missing",
+        d: "found",
+        cloud: "unavailable",
+        e: "found",
+        f: "found",
+        g: "found",
+      })
     );
 
     expect(result.reviewable.map((g) => g.ids)).toEqual([
       ["a", "b"],
-      ["d", "e", "f"],
+      ["e", "f", "g"],
     ]);
-    expect(result.degenerate).toEqual([["c", "gone"]]);
+    expect(result.collapsed).toEqual([["c", "gone"]]);
+    expect(result.deferred).toEqual([["d", "cloud"]]);
   });
 });
 

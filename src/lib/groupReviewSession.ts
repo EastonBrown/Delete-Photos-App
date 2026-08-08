@@ -1,8 +1,8 @@
-import { PhotoAsset } from "../types";
+import { AssetLookup, PhotoAsset } from "../types";
 
 // A Similar Group only means something as a comparison, so it needs at least two
 // surviving members. Groups can shrink below that when photos are deleted outside
-// the app — those are degenerate and get dropped from pending rather than reviewed.
+// the app — those have collapsed and get dropped from pending rather than reviewed.
 const MIN_GROUP_SIZE = 2;
 
 export interface ReviewableGroup {
@@ -24,31 +24,45 @@ export interface GroupReviewSessionState {
 
 export interface ResolvedGroups {
   reviewable: ReviewableGroup[];
-  // The original id lists of groups that can no longer be reviewed, so the caller
-  // can remove them from pending Similar Groups via removeGroup().
-  degenerate: string[][];
+  // The original id lists of collapsed groups — too few members survive and every
+  // one that didn't is confirmed gone. Safe for the caller to retire via
+  // removeGroup(), which hands any lone survivor back to the per-photo queue.
+  collapsed: string[][];
+  // Groups that can't be judged right now because at least one member failed to
+  // load. Left pending, untouched: they may well be reviewable on the next attempt.
+  deferred: string[][];
 }
 
 export function resolveGroups(
   idGroups: string[][],
-  assetsById: ReadonlyMap<string, PhotoAsset>
+  lookupsById: ReadonlyMap<string, AssetLookup>
 ): ResolvedGroups {
   const reviewable: ReviewableGroup[] = [];
-  const degenerate: string[][] = [];
+  const collapsed: string[][] = [];
+  const deferred: string[][] = [];
 
   for (const ids of idGroups) {
-    const photos = ids
-      .map((id) => assetsById.get(id))
-      .filter((a): a is PhotoAsset => a !== undefined);
+    // An id nobody looked up is unavailable, not missing. Defaulting the other way
+    // would retire a group on the strength of a lookup that never happened.
+    const results = ids.map(
+      (id): AssetLookup => lookupsById.get(id) ?? { status: "unavailable" }
+    );
+    const photos = results
+      .filter((r) => r.status === "found")
+      .map((r) => (r as { status: "found"; asset: PhotoAsset }).asset);
 
     if (photos.length >= MIN_GROUP_SIZE) {
+      // Two survivors make a real comparison. An unavailable third doesn't block it —
+      // retiring the group returns that member to the normal per-photo queue.
       reviewable.push({ ids, photos });
+    } else if (results.some((r) => r.status === "unavailable")) {
+      deferred.push(ids);
     } else {
-      degenerate.push(ids);
+      collapsed.push(ids);
     }
   }
 
-  return { reviewable, degenerate };
+  return { reviewable, collapsed, deferred };
 }
 
 export function createGroupReviewSession(groups: ReviewableGroup[]): GroupReviewSessionState {

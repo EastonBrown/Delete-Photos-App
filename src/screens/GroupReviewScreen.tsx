@@ -21,7 +21,7 @@ import {
   toggleMark,
 } from "../lib/groupReviewSession";
 import { markKept } from "../lib/keptRegistry";
-import { deleteAssets, getAssetInfo } from "../lib/mediaLibrary";
+import { deleteAssets, getAssetInfos } from "../lib/mediaLibrary";
 import { confirmReview } from "../lib/reviewSession";
 import { setResolved } from "../lib/scanStatus";
 import { getPendingGroups, removeGroup } from "../lib/similarGroups";
@@ -53,18 +53,14 @@ export function GroupReviewScreen({ onDone }: GroupReviewScreenProps) {
     (async () => {
       try {
         const idGroups = await getPendingGroups();
-        const uniqueIds = [...new Set(idGroups.flat())];
-        const assets = await Promise.all(uniqueIds.map(getAssetInfo));
+        const lookups = await getAssetInfos([...new Set(idGroups.flat())]);
 
-        const assetsById = new Map<string, PhotoAsset>();
-        for (const asset of assets) {
-          if (asset) assetsById.set(asset.id, asset);
-        }
-
-        const { reviewable, degenerate } = resolveGroups(idGroups, assetsById);
-        // Groups that can never be reviewed shouldn't linger in the pending count.
-        // Retiring them hands any lone survivor back to the normal per-photo queue.
-        for (const ids of degenerate) await retireGroup(ids);
+        const { reviewable, collapsed } = resolveGroups(idGroups, lookups);
+        // Collapsed groups can never be reviewed, so they shouldn't linger in the
+        // pending count. Retiring them hands any lone survivor back to the normal
+        // per-photo queue. Deferred groups are deliberately left alone — a member we
+        // couldn't load says nothing about whether it still exists (ADR-0002).
+        for (const ids of collapsed) await retireGroup(ids);
 
         setSession(createGroupReviewSession(reviewable));
       } catch {
