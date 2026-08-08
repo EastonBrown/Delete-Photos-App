@@ -35,9 +35,13 @@ interface GroupReviewScreenProps {
 // A group stops being pending in two stores at once: the pending-groups list and
 // each member's Scan Status. Both have to move together, or members leak out of
 // every review flow — see setResolved in scanStatus.ts.
+//
+// Scan Status first, deliberately: if the app dies between the two writes, members
+// sit at `cleared` with the group still pending, which just replays this review.
+// The other order strands them as `grouped` with no group to reach them.
 async function retireGroup(ids: string[]): Promise<void> {
-  await removeGroup(ids);
   await setResolved(ids);
+  await removeGroup(ids);
 }
 
 export function GroupReviewScreen({ onDone }: GroupReviewScreenProps) {
@@ -47,21 +51,28 @@ export function GroupReviewScreen({ onDone }: GroupReviewScreenProps) {
 
   useEffect(() => {
     (async () => {
-      const idGroups = await getPendingGroups();
-      const uniqueIds = [...new Set(idGroups.flat())];
-      const assets = await Promise.all(uniqueIds.map(getAssetInfo));
+      try {
+        const idGroups = await getPendingGroups();
+        const uniqueIds = [...new Set(idGroups.flat())];
+        const assets = await Promise.all(uniqueIds.map(getAssetInfo));
 
-      const assetsById = new Map<string, PhotoAsset>();
-      for (const asset of assets) {
-        if (asset) assetsById.set(asset.id, asset);
+        const assetsById = new Map<string, PhotoAsset>();
+        for (const asset of assets) {
+          if (asset) assetsById.set(asset.id, asset);
+        }
+
+        const { reviewable, degenerate } = resolveGroups(idGroups, assetsById);
+        // Groups that can never be reviewed shouldn't linger in the pending count.
+        // Retiring them hands any lone survivor back to the normal per-photo queue.
+        for (const ids of degenerate) await retireGroup(ids);
+
+        setSession(createGroupReviewSession(reviewable));
+      } catch {
+        // An empty session still renders the "No similar photos" screen, which has a
+        // way out. Leaving `session` null would strand the user on a spinner with no
+        // exit — this screen is the only route back to start.
+        setSession(createGroupReviewSession([]));
       }
-
-      const { reviewable, degenerate } = resolveGroups(idGroups, assetsById);
-      // Groups that can never be reviewed shouldn't linger in the pending count.
-      // Retiring them hands any lone survivor back to the normal per-photo queue.
-      for (const ids of degenerate) await retireGroup(ids);
-
-      setSession(createGroupReviewSession(reviewable));
     })();
   }, []);
 
@@ -83,7 +94,14 @@ export function GroupReviewScreen({ onDone }: GroupReviewScreenProps) {
         return;
       }
 
-      await retireGroup(group.ids);
+      // The photos are already gone by here, so a bookkeeping failure must not
+      // strand the session on a group that no longer exists — report and move on.
+      try {
+        await retireGroup(group.ids);
+      } catch {
+        Alert.alert("Couldn't update this group", "It may be offered for review again.");
+      }
+
       const next = advance(session);
       setSession(next);
       if (isComplete(next)) onDone();
@@ -135,6 +153,11 @@ export function GroupReviewScreen({ onDone }: GroupReviewScreenProps) {
 
       <FlatList
         data={group.photos}
+        // Defensive: cells currently re-render anyway because renderItem below is an
+        // inline arrow, so FlatList's PureComponent check always fails. Hoisting it
+        // out (or enabling strictMode) would make this the only thing repainting the
+        // mark overlays, which live in session.marked rather than in `data`.
+        extraData={session.marked}
         keyExtractor={(item) => item.id}
         numColumns={3}
         contentContainerStyle={styles.grid}
@@ -143,7 +166,10 @@ export function GroupReviewScreen({ onDone }: GroupReviewScreenProps) {
           return (
             <Pressable
               style={styles.cell}
-              onPress={() => setSession(toggleMark(session, item.id))}
+              // Updater form so the toggle composes from the latest state rather than
+              // the render closure's copy — taps are discrete events that flush one at
+              // a time, so this is idiom rather than a fix for an observed bug.
+              onPress={() => setSession((state) => (state ? toggleMark(state, item.id) : state))}
               onLongPress={() => setPreview(item)}
             >
               <Image source={{ uri: item.uri }} style={styles.thumb} contentFit="cover" />
