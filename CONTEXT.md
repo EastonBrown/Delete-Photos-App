@@ -13,7 +13,7 @@ The process that grows Similar Groups by hashing a random sample of Unscanned ph
 _Avoid_: duplicate scan, similarity index
 
 **Collapsed Similar Group**:
-A Similar Group with fewer than two surviving members, usually because photos were deleted outside the app. It offers no comparison and no choice, so it stops being pending and any lone survivor returns to the normal one-by-one review. A group only counts as collapsed when every non-surviving member is confirmed gone — a member the app merely failed to load is unavailable, not deleted, and its group waits instead. See [ADR-0002](./docs/adr/0002-unavailable-is-not-deleted.md).
+A Similar Group with fewer than two surviving members, usually because photos were deleted outside the app. It offers no comparison and no choice, so it stops being pending and any lone survivor returns to the normal one-by-one review. A group only counts as collapsed when every non-surviving member is confirmed gone — a member the app merely failed to load is unavailable, not deleted, and its group waits instead. Collapse is detected against a full library enumeration during the pool top-up — free on a pass that scanned, and otherwise taken at most once per app run — so a group is normally retired before it is ever counted as pending; the review screen catches the rest when it resolves each member. See [ADR-0002](./docs/adr/0002-unavailable-is-not-deleted.md).
 _Avoid_: degenerate group, dead group, orphaned group
 
 **Reviewed**:

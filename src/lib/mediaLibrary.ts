@@ -3,14 +3,28 @@ import { AssetLookup } from "../types";
 
 export type AccessLevel = "all" | "limited" | "none";
 
+// "all" has to be stated, not assumed: accessPrivileges is optional in the type,
+// and the caller that acts on "all" prunes persisted state on the strength of a
+// library enumeration being complete. Guessing wrong toward "limited" costs a
+// stray banner; guessing wrong toward "all" reads a partial library as deletions.
+function toAccessLevel(response: MediaLibrary.PermissionResponse): AccessLevel {
+  if (!response.granted) return "none";
+  return response.accessPrivileges === "all" ? "all" : "limited";
+}
+
 export async function requestAccess(): Promise<AccessLevel> {
   const current = await MediaLibrary.getPermissionsAsync(false);
   const response = current.granted
     ? current
     : await MediaLibrary.requestPermissionsAsync(false);
 
-  if (!response.granted) return "none";
-  return response.accessPrivileges === "limited" ? "limited" : "all";
+  return toAccessLevel(response);
+}
+
+// Reads the access level without ever prompting — for background work that needs
+// to know how much of the library it can see, not to ask for more.
+export async function getAccessLevel(): Promise<AccessLevel> {
+  return toAccessLevel(await MediaLibrary.getPermissionsAsync(false));
 }
 
 export async function presentLimitedAccessPicker(): Promise<void> {

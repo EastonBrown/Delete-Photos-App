@@ -65,6 +65,42 @@ export function resolveGroups(
   return { reviewable, collapsed, deferred };
 }
 
+export interface ReconciledGroups {
+  // The groups still worth reviewing, in their original order.
+  pending: string[][];
+  // Members of collapsed groups that are still in the library — the lone survivors,
+  // which belong back in the normal per-photo queue rather than in limbo.
+  survivorIds: string[];
+}
+
+// Retires Similar Groups that have collapsed, judged against a complete snapshot
+// of the library rather than per-asset lookups. Absence from that snapshot is the
+// library saying the photo is gone, so it is `missing` in ADR-0002's terms — but
+// only if the snapshot really is complete: pass a partial one (limited photo
+// access) and this retires groups whose members the user still owns.
+//
+// Counting reviewable groups up front is what keeps the pending count honest;
+// otherwise a collapsed group is only discovered when the review screen resolves
+// it, after the user has been told there was something to review.
+export function reconcileAgainstLibrary(
+  groups: string[][],
+  libraryIds: ReadonlySet<string>
+): ReconciledGroups {
+  const pending: string[][] = [];
+  const survivorIds: string[] = [];
+
+  for (const ids of groups) {
+    const survivors = ids.filter((id) => libraryIds.has(id));
+    if (survivors.length >= MIN_GROUP_SIZE) {
+      pending.push(ids);
+    } else {
+      survivorIds.push(...survivors);
+    }
+  }
+
+  return { pending: pending.length === groups.length ? groups : pending, survivorIds };
+}
+
 export function createGroupReviewSession(groups: ReviewableGroup[]): GroupReviewSessionState {
   return { groups, index: 0, marked: [] };
 }

@@ -1,3 +1,4 @@
+import { ScannedPhoto } from "./scanRecords";
 import { shuffle } from "./shuffle";
 import { DEFAULT_SIMILARITY_THRESHOLD, Hash, isSimilarHash, mergeMatch } from "./similarityMatch";
 
@@ -26,11 +27,6 @@ export interface PoolTopUpConfig {
   timeBudgetMs?: number;
   neighborCount?: number;
   similarityThreshold?: number;
-}
-
-export interface ScannedPhoto {
-  id: string;
-  hash: Hash;
 }
 
 export interface PoolTopUpResult {

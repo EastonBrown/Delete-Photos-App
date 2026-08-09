@@ -6,6 +6,7 @@ import {
   currentGroup,
   isComplete,
   markedAssets,
+  reconcileAgainstLibrary,
   resolveGroups,
   ReviewableGroup,
   toggleMark,
@@ -268,5 +269,58 @@ describe("advance", () => {
     const groups = [group("a", "b"), group("c", "d")];
 
     expect(isComplete(advance(createGroupReviewSession(groups)))).toBe(false);
+  });
+});
+
+describe("reconcileAgainstLibrary", () => {
+  it("keeps a group whose members are all still in the library", () => {
+    const result = reconcileAgainstLibrary([["a", "b"]], new Set(["a", "b", "c"]));
+
+    expect(result.pending).toEqual([["a", "b"]]);
+    expect(result.survivorIds).toEqual([]);
+  });
+
+  it("keeps a group that still has two members, even if a third is gone", () => {
+    const result = reconcileAgainstLibrary([["a", "b", "c"]], new Set(["a", "b"]));
+
+    expect(result.pending).toEqual([["a", "b", "c"]]);
+    expect(result.survivorIds).toEqual([]);
+  });
+
+  it("retires a collapsed group and hands back its lone survivor", () => {
+    const result = reconcileAgainstLibrary([["a", "b"]], new Set(["a"]));
+
+    expect(result.pending).toEqual([]);
+    expect(result.survivorIds).toEqual(["a"]);
+  });
+
+  it("retires a group whose members are all gone", () => {
+    const result = reconcileAgainstLibrary([["a", "b"]], new Set(["c"]));
+
+    expect(result.pending).toEqual([]);
+    expect(result.survivorIds).toEqual([]);
+  });
+
+  it("reconciles each group independently", () => {
+    const result = reconcileAgainstLibrary(
+      [
+        ["a", "b"],
+        ["c", "d"],
+        ["e", "f"],
+      ],
+      new Set(["a", "b", "c", "e", "f"])
+    );
+
+    expect(result.pending).toEqual([
+      ["a", "b"],
+      ["e", "f"],
+    ]);
+    expect(result.survivorIds).toEqual(["c"]);
+  });
+
+  it("returns the original groups array when nothing collapsed", () => {
+    const groups = [["a", "b"]];
+
+    expect(reconcileAgainstLibrary(groups, new Set(["a", "b"])).pending).toBe(groups);
   });
 });
